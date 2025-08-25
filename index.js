@@ -1,8 +1,13 @@
+// Import required modules
 const { Client, GatewayIntentBits, REST, Routes, EmbedBuilder, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, generateDependencyReport } = require('@discordjs/voice');
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
+
+// Check audio dependencies on startup
+console.log('🔍 Checking audio dependencies...');
+console.log(generateDependencyReport());
 
 // Environment variables
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -127,8 +132,23 @@ function getAvailableChannelName() {
     return availableNames[Math.floor(Math.random() * availableNames.length)];
 }
 
+// Check if audio playback is supported
+let audioSupported = false;
+try {
+    const report = generateDependencyReport();
+    audioSupported = !report.includes('missing');
+    console.log(audioSupported ? '✅ Audio playback supported' : '⚠️ Audio dependencies missing, playback disabled');
+} catch (error) {
+    console.log('⚠️ Could not check audio dependencies, playback disabled');
+}
+
 // Play welcome audio
 async function playWelcomeAudio(channelId) {
+    if (!audioSupported) {
+        console.log('🔇 Audio playback disabled due to missing dependencies');
+        return;
+    }
+    
     try {
         const channel = client.channels.cache.get(channelId);
         if (!channel) {
@@ -153,56 +173,63 @@ async function playWelcomeAudio(channelId) {
         connection.on(VoiceConnectionStatus.Ready, () => {
             console.log('🔊 Voice connection ready, starting playback');
             
-            const player = createAudioPlayer();
-            const resource = createAudioResource(audioPath, { 
-                inlineVolume: true,
-                inputType: require('@discordjs/voice').StreamType.OggOpus
-            });
-            
-            if (resource.volume) {
-                resource.volume.setVolume(AUDIO_VOLUME);
-            }
-            
-            player.play(resource);
-            connection.subscribe(player);
-
-            player.on(AudioPlayerStatus.Playing, () => {
-                console.log('✅ Audio is now playing');
-            });
-
-            player.on(AudioPlayerStatus.Idle, () => {
-                console.log('🎵 Audio playback finished');
-                connection.destroy();
-            });
-
-            player.on('error', (error) => {
-                console.error('❌ Audio player error:', error);
-                connection.destroy();
-            });
-
-            // Failsafe disconnect after 8 seconds
-            setTimeout(() => {
-                if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
-                    console.log('🕒 Disconnecting due to timeout');
-                    connection.destroy();
+            try {
+                const player = createAudioPlayer();
+                const resource = createAudioResource(audioPath, { 
+                    inlineVolume: true,
+                    inputType: require('@discordjs/voice').StreamType.OggOpus
+                });
+                
+                if (resource.volume) {
+                    resource.volume.setVolume(AUDIO_VOLUME);
                 }
-            }, 8000);
+                
+                player.play(resource);
+                connection.subscribe(player);
+
+                player.on(AudioPlayerStatus.Playing, () => {
+                    console.log('✅ Audio is now playing');
+                });
+
+                player.on(AudioPlayerStatus.Idle, () => {
+                    console.log('🎵 Audio playback finished');
+                    connection.destroy();
+                });
+
+                player.on('error', (error) => {
+                    console.error('❌ Audio player error:', error.message);
+                    connection.destroy();
+                });
+
+                // Disconnect after 5 seconds as originally intended
+                setTimeout(() => {
+                    if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
+                        console.log('🕒 Disconnecting after 5 seconds');
+                        connection.destroy();
+                    }
+                }, 5000);
+                
+            } catch (playerError) {
+                console.error('❌ Error creating audio player:', playerError.message);
+                connection.destroy();
+            }
         });
 
         connection.on('error', (error) => {
-            console.error('❌ Voice connection error:', error);
+            console.error('❌ Voice connection error:', error.message);
         });
 
         connection.on(VoiceConnectionStatus.Disconnected, () => {
             console.log('🔇 Voice connection disconnected');
         });
 
-        // Emergency disconnect after 15 seconds
+        // Emergency disconnect after 10 seconds
         setTimeout(() => {
             if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
+                console.log('🚨 Emergency disconnect after 10 seconds');
                 connection.destroy();
             }
-        }, 15000);
+        }, 10000);
 
     } catch (error) {
         console.error('❌ Error in playWelcomeAudio:', error.message);
