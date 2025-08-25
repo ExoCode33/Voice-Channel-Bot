@@ -14,6 +14,8 @@ const VOICE_LOG_CHANNEL_ID = process.env.VOICE_LOG_CHANNEL_ID || "14063619455770
 const DATABASE_URL = process.env.DATABASE_URL;
 const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID || "1381679987689525348";
 const AUDIO_VOLUME = parseFloat(process.env.AUDIO_VOLUME) || 0.4;
+const PROTECTED_CHANNEL_IDS = process.env.PROTECTED_CHANNEL_IDS ? 
+    process.env.PROTECTED_CHANNEL_IDS.split(',').map(id => id.trim()) : [];
 
 // One Piece themed channel names
 const CHANNEL_NAMES = [
@@ -281,16 +283,23 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         }
         
         // Check if old channel should be deleted
-        if (oldState.channelId !== CREATE_CHANNEL_ID && activeChannels.has(oldState.channelId)) {
+        if (oldState.channelId !== CREATE_CHANNEL_ID && 
+            activeChannels.has(oldState.channelId) && 
+            !PROTECTED_CHANNEL_IDS.includes(oldState.channelId)) {
+            
             const channel = oldState.channel;
             if (channel && channel.members.size === 0) {
                 setTimeout(async () => {
                     try {
                         const updatedChannel = client.channels.cache.get(oldState.channelId);
-                        if (updatedChannel && updatedChannel.members.size === 0) {
+                        if (updatedChannel && 
+                            updatedChannel.members.size === 0 && 
+                            !PROTECTED_CHANNEL_IDS.includes(oldState.channelId)) {
+                            
+                            const channelInfo = activeChannels.get(oldState.channelId);
                             await updatedChannel.delete();
                             activeChannels.delete(oldState.channelId);
-                            console.log(`🗑️ Deleted empty channel: ${activeChannels.get(oldState.channelId)?.name}`);
+                            console.log(`🗑️ Deleted empty channel: ${channelInfo?.name || 'Unknown'}`);
                         }
                     } catch (error) {
                         console.error('❌ Error deleting channel:', error);
@@ -464,9 +473,10 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Bot ready event (using clientReady for v14+ compatibility)
+// Bot ready event - Fixed deprecation warning
 client.once('ready', async () => {
     console.log(`🚀 Bot logged in as ${client.user.tag}`);
+    console.log(`🛡️ Protected channels: ${PROTECTED_CHANNEL_IDS.length > 0 ? PROTECTED_CHANNEL_IDS.join(', ') : 'None'}`);
     await initDatabase();
     await registerCommands();
     console.log('✅ Bot is ready and operational!');
