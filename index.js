@@ -49,10 +49,29 @@ const client = new Client({
 });
 
 // Initialize PostgreSQL connection
-const pool = new Pool({
-    connectionString: DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
+let pool;
+try {
+    if (!DATABASE_URL) {
+        console.log('⚠️ DATABASE_URL not found. Database features will be disabled.');
+        pool = null;
+    } else {
+        pool = new Pool({
+            connectionString: DATABASE_URL,
+            ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+            connectionTimeoutMillis: 5000,
+            idleTimeoutMillis: 30000,
+            max: 10
+        });
+        
+        // Test connection
+        pool.on('error', (err) => {
+            console.error('❌ PostgreSQL pool error:', err);
+        });
+    }
+} catch (error) {
+    console.error('❌ Failed to initialize database pool:', error);
+    pool = null;
+}
 
 // Storage for active channels and user sessions
 const activeChannels = new Map(); // channelId -> { name, createdAt }
@@ -60,7 +79,19 @@ const userSessions = new Map(); // userId -> { channelId, joinTime }
 
 // Initialize database
 async function initDatabase() {
+    if (!pool) {
+        console.log('⚠️ Database pool not available. Skipping database initialization.');
+        return;
+    }
+    
     try {
+        // Test connection first
+        const client = await pool.connect();
+        await client.query('SELECT NOW()');
+        client.release();
+        console.log('✅ Database connection successful');
+        
+        // Create table
         await pool.query(`
             CREATE TABLE IF NOT EXISTS voice_logs (
                 id SERIAL PRIMARY KEY,
@@ -74,7 +105,8 @@ async function initDatabase() {
         `);
         console.log('✅ Database initialized successfully');
     } catch (error) {
-        console.error('❌ Database initialization failed:', error);
+        console.error('❌ Database initialization failed:', error.message);
+        console.log('⚠️ Bot will continue without database features');
     }
 }
 
@@ -136,6 +168,11 @@ async function playWelcomeAudio(channelId) {
 
 // Update user voice time in database
 async function updateVoiceTime(userId, username, sessionTime) {
+    if (!pool) {
+        console.log('⚠️ Database not available, skipping voice time update');
+        return;
+    }
+    
     try {
         await pool.query(`
             INSERT INTO voice_logs (discord_id, username, total_voice_time, session_count, last_updated)
@@ -357,12 +394,20 @@ async function registerCommands() {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
     
-    if (interaction.commandName === 'voice-channel-log') {
+            if (interaction.commandName === 'voice-channel-log') {
         // Check if user has admin role
         const hasAdminRole = interaction.member.roles.cache.has(ADMIN_ROLE_ID);
         if (!hasAdminRole) {
             await interaction.reply({
                 content: '❌ You need administrator permissions to use this command.',
+                ephemeral: true
+            });
+            return;
+        }
+        
+        if (!pool) {
+            await interaction.reply({
+                content: '❌ Database is not available. Voice logging features are disabled.',
                 ephemeral: true
             });
             return;
@@ -419,7 +464,7 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Bot ready event
+// Bot ready event (using clientReady for v14+ compatibility)
 client.once('ready', async () => {
     console.log(`🚀 Bot logged in as ${client.user.tag}`);
     await initDatabase();
