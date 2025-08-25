@@ -300,18 +300,37 @@ async function updateVoiceTime(userId, username, sessionTime) {
     }
 }
 
-// Format time duration
+// Format time duration with appropriate units
 function formatDuration(milliseconds) {
-    const seconds = Math.floor(milliseconds / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const totalHours = Math.floor(totalMinutes / 60);
+    const totalDays = Math.floor(totalHours / 24);
     
-    if (hours > 0) {
-        return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
-    } else if (minutes > 0) {
-        return `${minutes}m ${seconds % 60}s`;
+    if (totalDays > 0) {
+        const remainingHours = totalHours % 24;
+        const remainingMinutes = totalMinutes % 60;
+        if (remainingHours > 0) {
+            return `${totalDays}d ${remainingHours}h ${remainingMinutes}m`;
+        } else {
+            return `${totalDays}d ${remainingMinutes}m`;
+        }
+    } else if (totalHours > 0) {
+        const remainingMinutes = totalMinutes % 60;
+        if (remainingMinutes > 0) {
+            return `${totalHours}h ${remainingMinutes}m`;
+        } else {
+            return `${totalHours}h`;
+        }
+    } else if (totalMinutes > 0) {
+        const remainingSeconds = totalSeconds % 60;
+        if (remainingSeconds > 0) {
+            return `${totalMinutes}m ${remainingSeconds}s`;
+        } else {
+            return `${totalMinutes}m`;
+        }
     } else {
-        return `${seconds}s`;
+        return `${totalSeconds}s`;
     }
 }
 
@@ -754,8 +773,8 @@ client.on('interactionCreate', async interaction => {
                 const username = row.username.length > 16 ? 
                     row.username.substring(0, 13) + '...' : row.username;
                 
-                const totalTime = formatDuration(row.total_voice_time);
-                const avgTime = formatDuration(row.avg_time);
+                const totalTime = formatDuration(parseInt(row.total_voice_time));
+                const avgTime = formatDuration(parseInt(row.avg_time));
                 const sessions = row.session_count;
                 
                 leaderboard += `${medal} **${username}**\n`;
