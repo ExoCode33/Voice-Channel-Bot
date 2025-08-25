@@ -449,7 +449,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 // Slash commands
 const commands = [
     new SlashCommandBuilder()
-        .setName('voice-channel-log')
+        .setName('voice-log')
         .setDescription('View top 25 voice channel statistics (Admin only)')
 ];
 
@@ -471,7 +471,7 @@ async function registerCommands() {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
     
-            if (interaction.commandName === 'voice-channel-log') {
+        if (interaction.commandName === 'voice-log') {
         // Check if user has admin role
         const hasAdminRole = interaction.member.roles.cache.has(ADMIN_ROLE_ID);
         if (!hasAdminRole) {
@@ -508,26 +508,54 @@ client.on('interactionCreate', async interaction => {
             }
             
             const embed = new EmbedBuilder()
-                .setTitle('🎤 Top 25 Voice Channel Statistics')
-                .setColor(0x0099ff)
-                .setTimestamp();
+                .setTitle('🎤 Voice Activity Leaderboard')
+                .setDescription('Top voice channel users in this server')
+                .setColor(0x1e90ff)
+                .setTimestamp()
+                .setFooter({ 
+                    text: `📈 Total tracked users: ${result.rows.length}`,
+                    iconURL: interaction.guild.iconURL()
+                });
             
-            let description = '```\n';
-            description += 'Rank | Username              | Total Time  | Avg Time    | Sessions\n';
-            description += '-----|----------------------|-------------|-------------|----------\n';
+            let leaderboard = '';
             
             result.rows.forEach((row, index) => {
-                const rank = (index + 1).toString().padStart(4);
-                const username = row.username.substring(0, 20).padEnd(20);
-                const totalTime = formatDuration(row.total_voice_time).padStart(11);
-                const avgTime = formatDuration(row.avg_time).padStart(11);
-                const sessions = row.session_count.toString().padStart(8);
+                const rank = index + 1;
+                let medal = '';
                 
-                description += `${rank} | ${username} | ${totalTime} | ${avgTime} | ${sessions}\n`;
+                // Add medals for top 3
+                if (rank === 1) medal = '🥇';
+                else if (rank === 2) medal = '🥈';
+                else if (rank === 3) medal = '🥉';
+                else medal = `**${rank}.**`;
+                
+                const username = row.username.length > 16 ? 
+                    row.username.substring(0, 13) + '...' : row.username;
+                
+                const totalTime = formatDuration(row.total_voice_time);
+                const avgTime = formatDuration(row.avg_time);
+                const sessions = row.session_count;
+                
+                leaderboard += `${medal} **${username}**\n`;
+                leaderboard += `   ⏱️ Total: \`${totalTime}\` | 📊 Avg: \`${avgTime}\` | 🔄 Sessions: \`${sessions}\`\n\n`;
             });
             
-            description += '```';
-            embed.setDescription(description);
+            embed.addFields({
+                name: '🏆 Voice Champions',
+                value: leaderboard,
+                inline: false
+            });
+            
+            // Add some server stats
+            const totalUsers = result.rows.length;
+            const totalTime = result.rows.reduce((sum, row) => sum + parseInt(row.total_voice_time), 0);
+            const totalSessions = result.rows.reduce((sum, row) => sum + parseInt(row.session_count), 0);
+            
+            embed.addFields({
+                name: '📈 Server Statistics',
+                value: `🎯 **Active Users:** ${totalUsers}\n⏰ **Total Voice Time:** ${formatDuration(totalTime)}\n🔄 **Total Sessions:** ${totalSessions}`,
+                inline: false
+            });
             
             await interaction.reply({ embeds: [embed] });
             
