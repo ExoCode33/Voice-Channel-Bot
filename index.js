@@ -1,4 +1,17 @@
-// Import required modules
+// Get available channel name (no duplicates)
+function getAvailableChannelName() {
+    const usedNames = Array.from(activeChannels.values()).map(ch => ch.name);
+    const availableNames = CHANNEL_NAMES.filter(name => !usedNames.includes(name));
+    
+    if (availableNames.length === 0) {
+        // If all names are used, add a number suffix
+        const randomName = CHANNEL_NAMES[Math.floor(Math.random() * CHANNEL_NAMES.length)];
+        const suffix = Math.floor(Math.random() * 1000) + 1;
+        return `${randomName} ${suffix}`;
+    }
+    
+    return availableNames[Math.floor(Math.random() * availableNames.length)];
+}// Import required modules
 const { Client, GatewayIntentBits, REST, Routes, EmbedBuilder, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, generateDependencyReport } = require('@discordjs/voice');
 const { Pool } = require('pg');
@@ -117,19 +130,47 @@ async function initDatabase() {
     }
 }
 
-// Get available channel name (no duplicates)
-function getAvailableChannelName() {
-    const usedNames = Array.from(activeChannels.values()).map(ch => ch.name);
-    const availableNames = CHANNEL_NAMES.filter(name => !usedNames.includes(name));
-    
-    if (availableNames.length === 0) {
-        // If all names are used, add a number suffix
-        const randomName = CHANNEL_NAMES[Math.floor(Math.random() * CHANNEL_NAMES.length)];
-        const suffix = Math.floor(Math.random() * 1000) + 1;
-        return `${randomName} ${suffix}`;
+// Clean up empty voice channels on startup
+async function cleanupEmptyChannels() {
+    try {
+        console.log('🧹 Checking for empty voice channels to cleanup...');
+        
+        // Get all guilds the bot is in
+        for (const guild of client.guilds.cache.values()) {
+            const category = guild.channels.cache.get(CATEGORY_ID);
+            if (!category) continue;
+            
+            // Get all voice channels in the category
+            const voiceChannels = category.children.cache.filter(channel => 
+                channel.type === 2 && // Voice channel
+                channel.id !== CREATE_CHANNEL_ID && // Not the create channel
+                !PROTECTED_CHANNEL_IDS.includes(channel.id) // Not protected
+            );
+            
+            let deletedCount = 0;
+            for (const channel of voiceChannels.values()) {
+                if (channel.members.size === 0) {
+                    try {
+                        await channel.delete();
+                        deletedCount++;
+                        console.log(`🗑️ Startup cleanup: Deleted empty channel: ${channel.name}`);
+                        // Small delay to avoid rate limits
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    } catch (error) {
+                        console.error(`❌ Error deleting empty channel ${channel.name}:`, error.message);
+                    }
+                }
+            }
+            
+            if (deletedCount > 0) {
+                console.log(`✅ Startup cleanup completed: Removed ${deletedCount} empty voice channels`);
+            } else {
+                console.log(`ℹ️ No empty voice channels found to cleanup`);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Error during startup cleanup:', error);
     }
-    
-    return availableNames[Math.floor(Math.random() * availableNames.length)];
 }
 
 // Check if audio playback is supported
@@ -355,30 +396,66 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             console.log(`📊 Updated voice time for ${username}: ${formatDuration(sessionTime)}`);
         }
         
-        // Check if old channel should be deleted
+        // Check if old channel should be deleted (ANY voice channel in category, not just bot-created ones)
         if (oldState.channelId !== CREATE_CHANNEL_ID && 
-            activeChannels.has(oldState.channelId) && 
             !PROTECTED_CHANNEL_IDS.includes(oldState.channelId)) {
             
             const channel = oldState.channel;
-            if (channel && channel.members.size === 0) {
-                console.log(`⏰ Scheduling deletion of empty channel: ${channel.name}`);
+            // Check if it's a voice channel in our managed category
+            if (channel && 
+                channel.type === 2 && // Voice channel
+                channel.parentId === CATEGORY_ID && 
+                channel.members.size === 0) {
+                
+                console.log(`⏰ Scheduling deletion of empty voice channel: ${channel.name} (${channel.members.size} members)`);
                 setTimeout(async () => {
                     try {
                         const updatedChannel = client.channels.cache.get(oldState.channelId);
                         if (updatedChannel && 
                             updatedChannel.members.size === 0 && 
-                            !PROTECTED_CHANNEL_IDS.includes(oldState.channelId)) {
+                            !PROTECTED_CHANNEL_IDS.includes(oldState.channelId) &&
+                            updatedChannel.type === 2 && // Still a voice channel
+                            updatedChannel.parentId === CATEGORY_ID) { // Still in our category
                             
-                            const channelInfo = activeChannels.get(oldState.channelId);
                             await updatedChannel.delete();
-                            activeChannels.delete(oldState.channelId);
-                            console.log(`🗑️ Deleted empty channel: ${channelInfo?.name || 'Unknown'}`);
+                            // Remove from activeChannels if it was there
+                            if (activeChannels.has(oldState.channelId)) {
+                                activeChannels.delete(oldState.channelId);
+                            }
+                            console.log(`🗑️ Deleted empty voice channel: ${updatedChannel.name}`);
+                        } else {
+                            const memberCount = updatedChannel?.members.size || 0;
+                            const isProtected = PROTECTED_CHANNEL_IDS.includes(oldState.channelId);
+                            const isVoiceChannel = updatedChannel?.type === 2;
+                            const inCategory = updatedChannel?.parentId === CATEGORY_ID;
+                            
+                            console.log(`ℹ️ Channel not deleted: ${updatedChannel?.name || 'Unknown'}`);
+                            console.log(`   - Members: ${memberCount}`);
+                            console.log(`   - Protected: ${isProtected}`);
+                            console.log(`   - Is Voice Channel: ${isVoiceChannel}`);
+                            console.log(`   - In Managed Category: ${inCategory}`);
                         }
                     } catch (error) {
                         console.error('❌ Error deleting channel:', error);
                     }
                 }, DELETE_DELAY);
+            } else {
+                if (channel) {
+                    const isVoiceChannel = channel.type === 2;
+                    const inCategory = channel.parentId === CATEGORY_ID;
+                    const memberCount = channel.members.size;
+                    
+                    console.log(`ℹ️ Channel not scheduled for deletion: ${channel.name}`);
+                    console.log(`   - Is Voice Channel: ${isVoiceChannel}`);
+                    console.log(`   - In Managed Category: ${inCategory}`);
+                    console.log(`   - Members: ${memberCount}`);
+                }
+            }
+        } else {
+            if (oldState.channelId === CREATE_CHANNEL_ID) {
+                console.log(`ℹ️ Not deleting CREATE channel: ${oldState.channel?.name}`);
+            } else if (PROTECTED_CHANNEL_IDS.includes(oldState.channelId)) {
+                console.log(`ℹ️ Channel protected from deletion: ${oldState.channel?.name}`);
             }
         }
     }
@@ -750,6 +827,12 @@ client.once('ready', async () => {
     
     await initDatabase();
     await registerCommands();
+    
+    // Cleanup any empty voice channels from previous sessions
+    setTimeout(async () => {
+        await cleanupEmptyChannels();
+    }, 3000); // Wait 3 seconds after bot is ready
+    
     console.log('✅ Bot is ready and operational!');
 });
 
