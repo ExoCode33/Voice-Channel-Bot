@@ -452,6 +452,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     // Handle user moving between channels (INCLUDING moving TO the create channel)
     if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
         console.log(`🔄 ${username} moved from ${oldState.channel?.name} to ${newState.channel?.name}`);
+        console.log(`🔍 Debug: newState.channelId = "${newState.channelId}", CREATE_CHANNEL_ID = "${CREATE_CHANNEL_ID}"`);
+        console.log(`🔍 Debug: Are they equal? ${newState.channelId === CREATE_CHANNEL_ID}`);
         
         const session = userSessions.get(userId);
         if (session) {
@@ -511,6 +513,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                     console.error('❌ Error creating voice channel from move:', error);
                 }
             } else {
+                console.log(`ℹ️ Regular move between channels (not to CREATE channel)`);
                 // Regular move between channels
                 await logVoiceActivity('move', member, oldState.channel, newState.channel, sessionTime);
                 
@@ -670,7 +673,7 @@ client.once('ready', async () => {
         
         console.log(`📋 Channel validation:`);
         console.log(`   📁 Category found: ${category ? '✅ ' + category.name : '❌ Not found'}`);
-        console.log(`   🎯 Create channel found: ${createChannel ? '✅ ' + createChannel.name : '❌ Not found'}`);
+        console.log(`   🎯 Create channel found: ${createChannel ? '✅ ' + createChannel.name : '❌ Not found - This should be your "Join to Create" channel!'}`);
         console.log(`   📝 Log channel found: ${logChannel ? '✅ ' + logChannel.name : '❌ Not found'}`);
         
         if (!category) console.error(`⚠️ WARNING: Category ${CATEGORY_ID} not found! Voice channels won't be created.`);
