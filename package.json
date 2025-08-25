@@ -1,0 +1,27 @@
+{
+  "name": "one-piece-voice-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for dynamic voice channel creation with One Piece themes",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": ["discord", "bot", "voice", "one-piece"],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "@discordjs/voice": "^0.16.1",
+    "pg": "^8.11.3",
+    "ffmpeg-static": "^5.2.0",
+    "@discordjs/opus": "^0.9.0",
+    "sodium": "^3.0.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
