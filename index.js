@@ -131,7 +131,10 @@ function getAvailableChannelName() {
 async function playWelcomeAudio(channelId) {
     try {
         const channel = client.channels.cache.get(channelId);
-        if (!channel) return;
+        if (!channel) {
+            console.log('⚠️ Channel not found for audio playback');
+            return;
+        }
 
         const audioPath = path.join(__dirname, 'welcome.ogg');
         if (!fs.existsSync(audioPath)) {
@@ -139,6 +142,8 @@ async function playWelcomeAudio(channelId) {
             return;
         }
 
+        console.log('🎵 Attempting to play welcome audio...');
+        
         const connection = joinVoiceChannel({
             channelId: channelId,
             guildId: channel.guild.id,
@@ -146,25 +151,61 @@ async function playWelcomeAudio(channelId) {
         });
 
         connection.on(VoiceConnectionStatus.Ready, () => {
+            console.log('🔊 Voice connection ready, starting playback');
+            
             const player = createAudioPlayer();
-            const resource = createAudioResource(audioPath, { inlineVolume: true });
-            resource.volume.setVolume(AUDIO_VOLUME);
+            const resource = createAudioResource(audioPath, { 
+                inlineVolume: true,
+                inputType: require('@discordjs/voice').StreamType.OggOpus
+            });
+            
+            if (resource.volume) {
+                resource.volume.setVolume(AUDIO_VOLUME);
+            }
             
             player.play(resource);
             connection.subscribe(player);
 
-            // Leave after 5 seconds
-            setTimeout(() => {
+            player.on(AudioPlayerStatus.Playing, () => {
+                console.log('✅ Audio is now playing');
+            });
+
+            player.on(AudioPlayerStatus.Idle, () => {
+                console.log('🎵 Audio playback finished');
                 connection.destroy();
-            }, 5000);
+            });
+
+            player.on('error', (error) => {
+                console.error('❌ Audio player error:', error);
+                connection.destroy();
+            });
+
+            // Failsafe disconnect after 8 seconds
+            setTimeout(() => {
+                if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
+                    console.log('🕒 Disconnecting due to timeout');
+                    connection.destroy();
+                }
+            }, 8000);
         });
 
+        connection.on('error', (error) => {
+            console.error('❌ Voice connection error:', error);
+        });
+
+        connection.on(VoiceConnectionStatus.Disconnected, () => {
+            console.log('🔇 Voice connection disconnected');
+        });
+
+        // Emergency disconnect after 15 seconds
         setTimeout(() => {
-            connection.destroy();
-        }, 10000); // Failsafe disconnect after 10 seconds
+            if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
+                connection.destroy();
+            }
+        }, 15000);
 
     } catch (error) {
-        console.error('❌ Error playing welcome audio:', error);
+        console.error('❌ Error in playWelcomeAudio:', error.message);
     }
 }
 
@@ -473,10 +514,12 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Bot ready event - Fixed deprecation warning
+// Bot ready event - Using clientReady to avoid deprecation warning
 client.once('ready', async () => {
     console.log(`🚀 Bot logged in as ${client.user.tag}`);
     console.log(`🛡️ Protected channels: ${PROTECTED_CHANNEL_IDS.length > 0 ? PROTECTED_CHANNEL_IDS.join(', ') : 'None'}`);
+    console.log(`🎵 Audio volume set to: ${AUDIO_VOLUME}`);
+    console.log(`📊 Voice logging: ${ENABLE_VOICE_LOGGING ? 'Enabled' : 'Disabled'}`);
     await initDatabase();
     await registerCommands();
     console.log('✅ Bot is ready and operational!');
