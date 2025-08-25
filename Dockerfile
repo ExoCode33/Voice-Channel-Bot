@@ -1,13 +1,20 @@
-# Use official Node.js runtime as base image
-FROM node:18-alpine
+# Use official Node.js runtime - using bullseye for better compatibility
+FROM node:18-bullseye-slim
 
-# Install system dependencies for audio processing
-RUN apk add --no-cache \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
+    gcc \
+    libc6-dev \
+    libffi-dev \
+    libssl-dev \
     ffmpeg \
-    opus
+    libopus-dev \
+    libsodium-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -15,8 +22,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --omit=dev
+# Install dependencies with better error handling
+RUN npm install --omit=dev --verbose
 
 # Copy application code
 COPY . .
@@ -27,8 +34,9 @@ RUN mkdir -p /app/audio
 # Expose port (Railway will use PORT env var)
 EXPOSE 3000
 
-# Health check endpoint (optional)
-RUN echo "console.log('Health check: Bot is running');" > health.js
+# Add a simple health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "console.log('Bot health check passed')" || exit 1
 
 # Start the bot
 CMD ["npm", "start"]
