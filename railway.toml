@@ -1,0 +1,12 @@
+[build]
+builder = "dockerfile"
+
+[deploy]
+startCommand = "npm start"
+restartPolicyType = "always"
+
+[[services]]
+name = "one-piece-vc-bot"
+
+[services.variables]
+NODE_ENV = "production"
