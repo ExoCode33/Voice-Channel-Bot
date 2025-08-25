@@ -340,14 +340,19 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     const userId = member.id;
     const username = member.user.username;
     
+    console.log(`🔄 Voice state change: ${username} - Old: ${oldState.channelId} | New: ${newState.channelId}`);
+    
     // Handle user leaving voice channel
     if (oldState.channelId && !newState.channelId) {
+        console.log(`👋 ${username} left voice channel: ${oldState.channel?.name}`);
+        
         const session = userSessions.get(userId);
         if (session) {
             const sessionTime = Date.now() - session.joinTime;
             await updateVoiceTime(userId, username, sessionTime);
             await logVoiceActivity('leave', member, oldState.channel, null, sessionTime);
             userSessions.delete(userId);
+            console.log(`📊 Updated voice time for ${username}: ${formatDuration(sessionTime)}`);
         }
         
         // Check if old channel should be deleted
@@ -357,6 +362,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             
             const channel = oldState.channel;
             if (channel && channel.members.size === 0) {
+                console.log(`⏰ Scheduling deletion of empty channel: ${channel.name}`);
                 setTimeout(async () => {
                     try {
                         const updatedChannel = client.channels.cache.get(oldState.channelId);
@@ -379,6 +385,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     
     // Handle user joining voice channel
     if (!oldState.channelId && newState.channelId) {
+        console.log(`👥 ${username} joined voice channel: ${newState.channel?.name}`);
+        
         userSessions.set(userId, {
             channelId: newState.channelId,
             joinTime: Date.now()
@@ -386,10 +394,19 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         
         // Check if user joined the create channel
         if (newState.channelId === CREATE_CHANNEL_ID) {
+            console.log(`🎯 User joined CREATE channel, creating new voice channel...`);
+            
             try {
                 const guild = newState.guild;
                 const category = guild.channels.cache.get(CATEGORY_ID);
+                
+                if (!category) {
+                    console.error(`❌ Category not found: ${CATEGORY_ID}`);
+                    return;
+                }
+                
                 const channelName = getAvailableChannelName();
+                console.log(`🏗️ Creating channel: ${channelName}`);
                 
                 const newChannel = await guild.channels.create({
                     name: channelName,
@@ -403,8 +420,11 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                     createdAt: Date.now()
                 });
                 
+                console.log(`✅ Created channel: ${channelName} (ID: ${newChannel.id})`);
+                
                 // Move user to new channel
                 await member.voice.setChannel(newChannel);
+                console.log(`🚀 Moved ${username} to new channel`);
                 
                 // Update user session
                 userSessions.set(userId, {
@@ -431,6 +451,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     
     // Handle user moving between channels
     if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
+        console.log(`🔄 ${username} moved from ${oldState.channel?.name} to ${newState.channel?.name}`);
+        
         const session = userSessions.get(userId);
         if (session) {
             const sessionTime = Date.now() - session.joinTime;
@@ -575,6 +597,34 @@ client.once('ready', async () => {
     console.log(`🛡️ Protected channels: ${PROTECTED_CHANNEL_IDS.length > 0 ? PROTECTED_CHANNEL_IDS.join(', ') : 'None'}`);
     console.log(`🎵 Audio volume set to: ${AUDIO_VOLUME}`);
     console.log(`📊 Voice logging: ${ENABLE_VOICE_LOGGING ? 'Enabled' : 'Disabled'}`);
+    
+    // Validate configuration
+    console.log(`🔧 Configuration validation:`);
+    console.log(`   📁 Category ID: ${CATEGORY_ID}`);
+    console.log(`   🎯 Create Channel ID: ${CREATE_CHANNEL_ID}`);
+    console.log(`   📝 Log Channel ID: ${VOICE_LOG_CHANNEL_ID}`);
+    console.log(`   👑 Admin Role ID: ${ADMIN_ROLE_ID}`);
+    console.log(`   ⏱️ Delete Delay: ${DELETE_DELAY}ms`);
+    
+    // Check if channels exist
+    try {
+        const category = client.channels.cache.get(CATEGORY_ID);
+        const createChannel = client.channels.cache.get(CREATE_CHANNEL_ID);
+        const logChannel = client.channels.cache.get(VOICE_LOG_CHANNEL_ID);
+        
+        console.log(`📋 Channel validation:`);
+        console.log(`   📁 Category found: ${category ? '✅ ' + category.name : '❌ Not found'}`);
+        console.log(`   🎯 Create channel found: ${createChannel ? '✅ ' + createChannel.name : '❌ Not found'}`);
+        console.log(`   📝 Log channel found: ${logChannel ? '✅ ' + logChannel.name : '❌ Not found'}`);
+        
+        if (!category) console.error(`⚠️ WARNING: Category ${CATEGORY_ID} not found! Voice channels won't be created.`);
+        if (!createChannel) console.error(`⚠️ WARNING: Create channel ${CREATE_CHANNEL_ID} not found! Users won't trigger channel creation.`);
+        if (ENABLE_VOICE_LOGGING && !logChannel) console.error(`⚠️ WARNING: Log channel ${VOICE_LOG_CHANNEL_ID} not found! Voice logging won't work.`);
+        
+    } catch (error) {
+        console.error('❌ Error during channel validation:', error);
+    }
+    
     await initDatabase();
     await registerCommands();
     console.log('✅ Bot is ready and operational!');
