@@ -449,7 +449,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         }
     }
     
-    // Handle user moving between channels
+    // Handle user moving between channels (INCLUDING moving TO the create channel)
     if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
         console.log(`🔄 ${username} moved from ${oldState.channel?.name} to ${newState.channel?.name}`);
         
@@ -457,13 +457,69 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         if (session) {
             const sessionTime = Date.now() - session.joinTime;
             await updateVoiceTime(userId, username, sessionTime);
-            await logVoiceActivity('move', member, oldState.channel, newState.channel, sessionTime);
             
-            // Update session for new channel
-            userSessions.set(userId, {
-                channelId: newState.channelId,
-                joinTime: Date.now()
-            });
+            // Check if user moved TO the create channel
+            if (newState.channelId === CREATE_CHANNEL_ID) {
+                console.log(`🎯 User moved TO CREATE channel from another VC, creating new voice channel...`);
+                
+                try {
+                    const guild = newState.guild;
+                    const category = guild.channels.cache.get(CATEGORY_ID);
+                    
+                    if (!category) {
+                        console.error(`❌ Category not found: ${CATEGORY_ID}`);
+                        return;
+                    }
+                    
+                    const channelName = getAvailableChannelName();
+                    console.log(`🏗️ Creating channel: ${channelName}`);
+                    
+                    const newChannel = await guild.channels.create({
+                        name: channelName,
+                        type: 2, // Voice channel
+                        parent: category,
+                        userLimit: 0
+                    });
+                    
+                    activeChannels.set(newChannel.id, {
+                        name: channelName,
+                        createdAt: Date.now()
+                    });
+                    
+                    console.log(`✅ Created channel: ${channelName} (ID: ${newChannel.id})`);
+                    
+                    // Move user to new channel
+                    await member.voice.setChannel(newChannel);
+                    console.log(`🚀 Moved ${username} to new channel`);
+                    
+                    // Update user session
+                    userSessions.set(userId, {
+                        channelId: newChannel.id,
+                        joinTime: Date.now()
+                    });
+                    
+                    // Play welcome audio
+                    setTimeout(() => {
+                        playWelcomeAudio(newChannel.id);
+                    }, 1000);
+                    
+                    await logVoiceActivity('move', member, oldState.channel, newChannel, sessionTime);
+                    
+                    console.log(`✅ Created and moved user to: ${channelName}`);
+                    
+                } catch (error) {
+                    console.error('❌ Error creating voice channel from move:', error);
+                }
+            } else {
+                // Regular move between channels
+                await logVoiceActivity('move', member, oldState.channel, newState.channel, sessionTime);
+                
+                // Update session for new channel
+                userSessions.set(userId, {
+                    channelId: newState.channelId,
+                    joinTime: Date.now()
+                });
+            }
         }
     }
 });
